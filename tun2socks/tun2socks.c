@@ -65,6 +65,7 @@
 #include <lwip/nd6.h>
 #include <lwip/ip6_frag.h>
 #include <tun2socks/SocksUdpGwClient.h>
+#include <libancillary/unix_sock_ancil.h>
 
 #ifndef BADVPN_USE_WINAPI
 #include <base/BLog_syslog.h>
@@ -103,6 +104,8 @@ struct {
     int loglevel;
     int loglevels[BLOG_NUM_CHANNELS];
     char *tundev;
+    char *tun_sockpath;
+    int tun_mtu;
     char *netif_ipaddr;
     char *netif_netmask;
     char *netif_ip6addr;
@@ -334,9 +337,42 @@ int main (int argc, char **argv)
     }
     
     // init TUN device
-    if (!BTap_Init(&device, &ss, options.tundev, device_error_handler, NULL, 1)) {
+    if (options.tundev) {
+      if (!BTap_Init(&device, &ss, options.tundev, device_error_handler, NULL, 1)) {
         BLog(BLOG_ERROR, "BTap_Init failed");
         goto fail3;
+      }
+    } else {
+        if (!options.tun_sockpath) {
+          BLog(BLOG_ERROR, "Must specify either --tundev or --tun_sockpath");
+          goto fail3;
+        }
+
+        if (options.tun_mtu <= 0) {
+          BLog(BLOG_ERROR, "--tun-mtu must be greater than 0");
+          goto fail3;
+        }
+
+        BLog(BLOG_INFO, "Receiving tun_fd from specified sockpath: %s",
+             options.tun_sockpath);
+        int tun_fd;
+        if (unix_sock_ancil_recv_fd(options.tun_sockpath, &tun_fd)) {
+          BLog(BLOG_ERROR, "Cannot recv tun_fd from specified sockpath");
+          goto fail3;
+        }
+        BLog(BLOG_INFO, "Received tun_fd(%d) from specified sockpath: %s",
+             tun_fd, options.tun_sockpath);
+
+        struct BTap_init_data init_data;
+        init_data.dev_type = BTAP_DEV_TUN;
+        init_data.init_type = BTAP_INIT_FD;
+        init_data.init.fd.fd = tun_fd;
+        init_data.init.fd.mtu = options.tun_mtu;
+
+        if (!BTap_Init2(&device, &ss, init_data, device_error_handler, NULL)) {
+          BLog(BLOG_ERROR, "BTap_Init2 failed");
+          goto fail3;
+        }
     }
     
     // NOTE: the order of the following is important:
@@ -490,6 +526,8 @@ void print_help (const char *name)
         "        [--loglevel <0-5/none/error/warning/notice/info/debug>]\n"
         "        [--channel-loglevel <channel-name> <0-5/none/error/warning/notice/info/debug>] ...\n"
         "        [--tundev <name>]\n"
+        "        [--tun-sockpath <path>]\n"
+        "        [--tun-mtu <mtu>]\n"
         "        --netif-ipaddr <ipaddr>\n"
         "        --netif-netmask <ipnetmask>\n"
         "        --socks-server-addr <addr>\n"
@@ -530,6 +568,8 @@ int parse_arguments (int argc, char *argv[])
         options.loglevels[i] = -1;
     }
     options.tundev = NULL;
+    options.tun_sockpath = NULL;
+    options.tun_mtu = 0;
     options.netif_ipaddr = NULL;
     options.netif_netmask = NULL;
     options.netif_ip6addr = NULL;
@@ -625,6 +665,22 @@ int parse_arguments (int argc, char *argv[])
                 return 0;
             }
             options.tundev = argv[i + 1];
+            i++;
+        }
+        else if (!strcmp(arg, "--tun-sockpath")) {
+            if (1 >= argc - i) {
+                fprintf(stderr, "%s: requires an argument\n", arg);
+                return 0;
+            }
+            options.tun_sockpath = argv[i + 1];
+            i++;
+        }
+        else if (!strcmp(arg, "--tun-mtu")) {
+            if (1 >= argc - i) {
+                fprintf(stderr, "%s: requires an argument\n", arg);
+                return 0;
+            }
+            options.tun_mtu = atoi(argv[i + 1]);
             i++;
         }
         else if (!strcmp(arg, "--netif-ipaddr")) {
