@@ -5,6 +5,7 @@ if [[ "$NDK" = "" ]]; then
   exit 1
 fi
 
+BUILD_SHARED_LIB=$1
 SRC_DIR=$(pwd)
 API=21
 
@@ -21,12 +22,24 @@ fi
 
 export SRCDIR=`pwd`
 export OUTDIR=`pwd`/build
+export OBJDIR=$OUTDIR/objs
 export CC=$ANDROID_TOOLCHAIN/bin/arm-linux-androideabi-clang
 export CXX=$ANDROID_TOOLCHAIN/bin/arm-linux-androideabi-g++
-export CFLAGS="-Os -fPIE -I$ANDROID_TOOLCHAIN/sysroot/usr/include"
-export LDFLAGS="-pie -fPIE -L$ANDROID_TOOLCHAIN/sysroot/usr/lib"
+export CFLAGS="-Os -I$ANDROID_TOOLCHAIN/sysroot/usr/include"
+export LDFLAGS="-L$ANDROID_TOOLCHAIN/sysroot/usr/lib"
 export ENDIAN="little"
 export KERNEL="2.6"
+
+mkdir -p $OBJDIR
+
+if [[ "$BUILD_SHARED_LIB" = "shared" ]]; then
+  CFLAGS="${CFLAGS} -fPIC -DBUILD_SHARED_LIB"
+  BUILD_SHARED="-shared"
+  OUTPUT_FILE="tun2socks.so"
+else
+  CFLAGS="${CFLAGS} -fPIE"
+  OUTPUT_FILE="tun2socks"
+fi
 
 CFLAGS="${CFLAGS} -std=gnu99"
 INCLUDES=( "-I${SRCDIR}" "-I${SRCDIR}/lwip/src/include/ipv4" "-I${SRCDIR}/lwip/src/include/ipv6" "-I${SRCDIR}/lwip/src/include" "-I${SRCDIR}/lwip/custom" )
@@ -101,11 +114,13 @@ libancillary/unix_sock_ancil.c
 set -e
 set -x
 
+rm -f $OBJDIR/*
+
 OBJS=()
 for f in $SOURCES; do
-    obj=${f//\//_}.o
+    obj=$OBJDIR/${f//\//_}.o
     "${CC}" -c ${CFLAGS} "${INCLUDES[@]}" "${DEFS[@]}" "${SRCDIR}/${f}" -o "${obj}"
     OBJS=( "${OBJS[@]}" "${obj}" )
 done
 
-"${CC}" ${LDFLAGS} "${OBJS[@]}" -o $OUTDIR/tun2socks -pthread
+"${CC}" $BUILD_SHARED ${LDFLAGS} "${OBJS[@]}" -o $OUTDIR/$OUTPUT_FILE -pthread

@@ -104,6 +104,7 @@ struct {
     int loglevel;
     int loglevels[BLOG_NUM_CHANNELS];
     char *tundev;
+    int tunfd;
     char *tun_sockpath;
     int tun_mtu;
     char *netif_ipaddr;
@@ -247,7 +248,11 @@ static int client_socks_recv_send_out (struct tcp_client *client);
 static err_t client_sent_func (void *arg, struct tcp_pcb *tpcb, u16_t len);
 static void udpgw_client_handler_received (void *unused, BAddr local_addr, BAddr remote_addr, const uint8_t *data, int data_len);
 
+#ifdef BUILD_SHARED_LIB
+int start_tun2socks(int argc, char **argv)
+#else
 int main (int argc, char **argv)
+#endif
 {
     if (argc <= 0) {
         return 1;
@@ -338,35 +343,36 @@ int main (int argc, char **argv)
     
     // init TUN device
     if (options.tundev) {
-      if (!BTap_Init(&device, &ss, options.tundev, device_error_handler, NULL, 1)) {
-        BLog(BLOG_ERROR, "BTap_Init failed");
-        goto fail3;
-      }
+        if (!BTap_Init(&device, &ss, options.tundev, device_error_handler, NULL, 1)) {
+          BLog(BLOG_ERROR, "BTap_Init failed");
+          goto fail3;
+        }
     } else {
-        if (!options.tun_sockpath) {
-          BLog(BLOG_ERROR, "Must specify either --tundev or --tun_sockpath");
-          goto fail3;
-        }
-
         if (options.tun_mtu <= 0) {
-          BLog(BLOG_ERROR, "--tun-mtu must be greater than 0");
-          goto fail3;
+            BLog(BLOG_ERROR, "--tun-mtu must be greater than 0");
+            goto fail3;
         }
 
-        BLog(BLOG_INFO, "Receiving tun_fd from specified sockpath: %s",
-             options.tun_sockpath);
-        int tun_fd;
-        if (unix_sock_ancil_recv_fd(options.tun_sockpath, &tun_fd)) {
-          BLog(BLOG_ERROR, "Cannot recv tun_fd from specified sockpath");
-          goto fail3;
+        if (options.tunfd == -1) {
+            if (!options.tun_sockpath) {
+              BLog(BLOG_ERROR, "Must specify either --tundev, --tun_sockpath or --tunfd");
+              goto fail3;
+            }
+
+            BLog(BLOG_INFO, "Receiving tunfd from specified sockpath: %s",
+                 options.tun_sockpath);
+            if (unix_sock_ancil_recv_fd(options.tun_sockpath, &options.tunfd)) {
+              BLog(BLOG_ERROR, "Cannot recv tunfd from specified sockpath");
+              goto fail3;
+            }
+            BLog(BLOG_INFO, "Received tunfd(%d) from specified sockpath: %s",
+                 options.tunfd, options.tun_sockpath);
         }
-        BLog(BLOG_INFO, "Received tun_fd(%d) from specified sockpath: %s",
-             tun_fd, options.tun_sockpath);
 
         struct BTap_init_data init_data;
         init_data.dev_type = BTAP_DEV_TUN;
         init_data.init_type = BTAP_INIT_FD;
-        init_data.init.fd.fd = tun_fd;
+        init_data.init.fd.fd = options.tunfd;
         init_data.init.fd.mtu = options.tun_mtu;
 
         if (!BTap_Init2(&device, &ss, init_data, device_error_handler, NULL)) {
@@ -526,6 +532,7 @@ void print_help (const char *name)
         "        [--loglevel <0-5/none/error/warning/notice/info/debug>]\n"
         "        [--channel-loglevel <channel-name> <0-5/none/error/warning/notice/info/debug>] ...\n"
         "        [--tundev <name>]\n"
+        "        [--tunfd <fd>]\n"
         "        [--tun-sockpath <path>]\n"
         "        [--tun-mtu <mtu>]\n"
         "        --netif-ipaddr <ipaddr>\n"
@@ -568,6 +575,7 @@ int parse_arguments (int argc, char *argv[])
         options.loglevels[i] = -1;
     }
     options.tundev = NULL;
+    options.tunfd = -1;
     options.tun_sockpath = NULL;
     options.tun_mtu = 0;
     options.netif_ipaddr = NULL;
@@ -665,6 +673,14 @@ int parse_arguments (int argc, char *argv[])
                 return 0;
             }
             options.tundev = argv[i + 1];
+            i++;
+        }
+        else if (!strcmp(arg, "--tunfd")) {
+            if (1 >= argc - i) {
+                fprintf(stderr, "%s: requires an argument\n", arg);
+                return 0;
+            }
+            options.tunfd = atoi(argv[i + 1]);
             i++;
         }
         else if (!strcmp(arg, "--tun-sockpath")) {
