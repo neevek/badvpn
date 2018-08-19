@@ -40,6 +40,7 @@
 #include <base/BLog.h>
 
 #include "BConnection.h"
+#include "SocketProtector.h"
 
 #include <generated/blog_channel_BConnection.h>
 

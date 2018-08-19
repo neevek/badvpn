@@ -30,6 +30,20 @@
 #include <stdio.h>
 #include <stddef.h>
 
+#ifdef ANDROID
+#if !defined(__FILENAME__)
+#define __FILENAME__\
+  (strrchr(__FILE__, '/') ?\
+   strrchr(__FILE__, '/') + 1 : __FILE__)
+#endif
+
+#include <android/log.h>
+#define fprintf(fd, fmt, ...) \
+  __android_log_print( \
+    ANDROID_LOG_DEBUG, "badvpn", "[%s:%d] %s - " fmt, \
+    __FILENAME__, __LINE__, __FUNCTION__, ##__VA_ARGS__)
+#endif
+
 #include "BLog.h"
 
 #ifndef BADVPN_PLUGIN

@@ -23,19 +23,20 @@ fi
 export SRCDIR=`pwd`
 export OUTDIR=`pwd`/build
 export OBJDIR=$OUTDIR/objs
-export CC=$ANDROID_TOOLCHAIN/bin/arm-linux-androideabi-clang
+export CC=$ANDROID_TOOLCHAIN/bin/arm-linux-androideabi-gcc
 export CXX=$ANDROID_TOOLCHAIN/bin/arm-linux-androideabi-g++
-export CFLAGS="-Os -I$ANDROID_TOOLCHAIN/sysroot/usr/include"
-export LDFLAGS="-L$ANDROID_TOOLCHAIN/sysroot/usr/lib"
+export CFLAGS="-Os -march=armv7-a -I$ANDROID_TOOLCHAIN/sysroot/usr/include -DANDROID"
+export LDFLAGS="-march=armv7-a -L$ANDROID_TOOLCHAIN/sysroot/usr/lib"
 export ENDIAN="little"
 export KERNEL="2.6"
 
 mkdir -p $OBJDIR
 
-if [[ "$BUILD_SHARED_LIB" = "shared" ]]; then
-  CFLAGS="${CFLAGS} -fPIC -DBUILD_SHARED_LIB"
-  BUILD_SHARED="-shared"
-  OUTPUT_FILE="tun2socks.so"
+if [[ "$BUILD_SHARED_LIB" = "-shared" ]]; then
+  #CFLAGS="${CFLAGS} -fPIC -DBUILD_SHARED_LIB"
+  OUTPUT_FILE="libtun2socks.so"
+  CFLAGS="${CFLAGS} -D__ANDROID_API__=$API -DBUILD_SHARED_LIB -DPROTECT_SOCKET"
+  LDFLAGS="${LDFLAGS} -shared -Wl,-soname,$OUTPUT_FILE -llog"
 else
   CFLAGS="${CFLAGS} -fPIE"
   OUTPUT_FILE="tun2socks"
@@ -123,4 +124,4 @@ for f in $SOURCES; do
     OBJS=( "${OBJS[@]}" "${obj}" )
 done
 
-"${CC}" $BUILD_SHARED ${LDFLAGS} "${OBJS[@]}" -o $OUTDIR/$OUTPUT_FILE -pthread
+"${CC}" ${LDFLAGS} "${OBJS[@]}" -o $OUTDIR/$OUTPUT_FILE -pthread

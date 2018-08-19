@@ -32,6 +32,11 @@
 #include <string.h>
 #include <limits.h>
 
+#include <tun2socks/tun2socks_api.h>
+#ifdef PROTECT_SOCKET
+const SocketProtector *_socket_protector = NULL;
+#endif
+
 #include <misc/version.h>
 #include <misc/loggers_string.h>
 #include <misc/loglevel.h>
@@ -48,7 +53,6 @@
 #include <misc/ipaddr6.h>
 #include <misc/concat_strings.h>
 #include <structure/LinkedList1.h>
-#include <base/BLog.h>
 #include <system/BReactor.h>
 #include <system/BSignal.h>
 #include <system/BAddr.h>
@@ -67,12 +71,12 @@
 #include <tun2socks/SocksUdpGwClient.h>
 #include <libancillary/unix_sock_ancil.h>
 
+#include <base/BLog.h>
 #ifndef BADVPN_USE_WINAPI
 #include <base/BLog_syslog.h>
 #endif
 
 #include <tun2socks/tun2socks.h>
-
 #include <generated/blog_channel_tun2socks.h>
 
 #define LOGGER_STDOUT 1
@@ -210,7 +214,6 @@ LinkedList1 tcp_clients;
 // number of clients
 int num_clients;
 
-static void terminate (void);
 static void print_help (const char *name);
 static void print_version (void);
 static int parse_arguments (int argc, char *argv[]);
@@ -249,11 +252,13 @@ static err_t client_sent_func (void *arg, struct tcp_pcb *tpcb, u16_t len);
 static void udpgw_client_handler_received (void *unused, BAddr local_addr, BAddr remote_addr, const uint8_t *data, int data_len);
 
 #ifdef BUILD_SHARED_LIB
-int start_tun2socks(int argc, char **argv)
+int start_tun2socks(int argc, char **argv, const SocketProtector *sock_protector) {
+  #ifdef PROTECT_SOCKET
+    _socket_protector = sock_protector;
+  #endif
 #else
-int main (int argc, char **argv)
+int main (int argc, char **argv) {
 #endif
-{
     if (argc <= 0) {
         return 1;
     }
@@ -272,11 +277,11 @@ int main (int argc, char **argv)
     if (options.help) {
         print_version();
         print_help(argv[0]);
-        return 0;
+        return 1;
     }
     if (options.version) {
         print_version();
-        return 0;
+        return 1;
     }
     
     // initialize logger
@@ -502,7 +507,7 @@ fail0:
     return 1;
 }
 
-void terminate (void)
+void terminate()
 {
     ASSERT(!quitting)
     
@@ -513,6 +518,10 @@ void terminate (void)
     
     // exit event loop
     BReactor_Quit(&ss, 1);
+}
+
+void shutdown_tun2socks() {
+  terminate();
 }
 
 void print_help (const char *name)

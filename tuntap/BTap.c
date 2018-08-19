@@ -54,6 +54,8 @@
         #include <net/if_tun.h>
         #include <net/if_tap.h>
     #endif
+
+    #include <system/SocketProtector.h>
 #endif
 
 #include <base/BLog.h>
